@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#6ccbf2">
+<title>FACE FLAPPY DELUXE</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#10151b;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
+body{display:grid;place-items:center}
+#game{position:relative;width:min(100vw,560px);height:min(100vh,900px);height:min(100svh,900px);overflow:hidden;background:#72cdf1;touch-action:none}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hud{position:absolute;z-index:5;top:max(12px,env(safe-area-inset-top));left:14px;right:14px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+.score{font-size:52px;line-height:1;font-weight:950;color:#fff;text-shadow:0 4px 0 #0007}
+.pill{background:#ffffffdf;color:#183247;padding:8px 12px;border-radius:999px;font-size:11px;font-weight:900}
+#menu{position:absolute;inset:0;z-index:20;display:grid;place-items:center;padding:18px;background:#07152233}
+.card{width:min(94%,410px);padding:27px;border-radius:28px;background:rgba(255,255,255,.96);color:#173047;text-align:center;box-shadow:0 25px 90px #0007}
+h1{margin:0;font-size:38px;letter-spacing:-1px}
+h2{font-size:16px;margin:18px 0 8px}
+p{color:#607582;line-height:1.45;margin:8px 0 18px}
+.row{display:flex;gap:9px;justify-content:center;flex-wrap:wrap}
+button,select,input{font:inherit}
+button{border:0;border-radius:14px;min-height:48px;padding:11px 19px;background:#173047;color:#fff;font-weight:900;cursor:pointer}
+button.alt{background:#e8eff2;color:#173047}
+#settings{margin-top:14px;background:#edf4f7;border-radius:16px;padding:14px;text-align:left}
+label{display:block;font-size:13px;font-weight:850;margin:8px 0}
+select{width:100%;padding:10px;border:1px solid #b7c6ce;border-radius:10px;background:#fff}
+input[type=range]{width:100%}
+.hidden{display:none!important}
+.small{font-size:12px;color:#71818a;margin-top:12px}
+#bottom{position:absolute;z-index:8;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));display:flex;justify-content:center;gap:8px}
+#bottom button{min-height:40px;padding:8px 12px;font-size:12px;background:#ffffffdd;color:#173047}
+#loading{position:absolute;z-index:30;inset:0;display:grid;place-items:center;background:#08141ee8;color:#fff;font-weight:900}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="canvas"></canvas>
+<div id="loading">Loading FACE FLAPPY…</div>
+<div id="hud"><span class="pill">TAP • CLICK • SPACE</span><span id="score" class="score">0</span></div>
+
+<div id="menu">
+<div class="card">
+<h1 id="title">FACE FLAPPY</h1>
+<p id="message">A polished arcade flight game with your face as the pilot.</p>
+<div id="stats"></div>
+<div class="row"><button id="play">PLAY</button><button id="settingsBtn" class="alt">SETTINGS</button></div>
+<div id="settings" class="hidden">
+<label>Speed / Difficulty</label>
+<select id="difficulty">
+<option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option><option value="extreme">Extreme</option><option value="custom">Custom</option>
+</select>
+<div id="custom" class="hidden">
+<label>Speed: <span id="speedText">180</span></label>
+<input id="speed" type="range" min="135" max="285" value="180">
+</div>
+<h2>Scenes</h2>
+<label><select id="scene"><option value="auto" selected>Dynamic scenes</option><option value="day">Sunny Valley</option><option value="sunset">Sunset Mountains</option><option value="night">Neon Night</option><option value="storm">Storm Sky</option></select></label>
+<div class="small">Pipe gap and spacing remain comfortable and consistent. Difficulty changes speed only.</div>
+</div>
+<div class="small">Best: <b id="best">0</b></div>
+</div>
+</div>
+
+<div id="bottom"><button id="pause">PAUSE</button><button id="sound">🔊 SOUND</button><button id="restart">RESTART</button></div>
+
+<script>
+(()=>{"use strict";
+const FACE="face.png";
+const speeds={easy:145,normal:180,hard:220,extreme:260};
+const G={gap:194,spacing:250,pipeW:78,ground:84,gravity:920,jump:-345};
+const root=document.getElementById("game"),cv=document.getElementById("canvas"),ctx=cv.getContext("2d");
+const menu=document.getElementById("menu"),loading=document.getElementById("loading");
+const play=document.getElementById("play"),settingsBtn=document.getElementById("settingsBtn"),settings=document.getElementById("settings");
+const difficulty=document.getElementById("difficulty"),custom=document.getElementById("custom"),speed=document.getElementById("speed"),speedText=document.getElementById("speedText"),sceneSel=document.getElementById("scene");
+const scoreEl=document.getElementById("score"),bestEl=document.getElementById("best"),title=document.getElementById("title"),message=document.getElementById("message"),stats=document.getElementById("stats");
+const pause=document.getElementById("pause"),sound=document.getElementById("sound"),restart=document.getElementById("restart");
+const face=new Image();face.decoding="async";face.src=FACE;
+
+const audio=[1,2,3,4].map(i=>{let a=new Audio("sound"+i+".mp3");a.preload="auto";return a});
+let W=480,H=800,dpr=1,state="menu",raf=0,last=0,score=0,best=+(localStorage.getItem("ffBest")||0),pipes=[],spawn=0,muted=false,bird,sceneIndex=0,world=0;
+
+function resize(){
+ const r=root.getBoundingClientRect();W=480;H=Math.max(680,Math.min(900,Math.round(W*r.height/Math.max(1,r.width))));
+ dpr=Math.min(2,devicePixelRatio||1);cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener("resize",resize);resize();
+bestEl.textContent=best;difficulty.value=localStorage.getItem("ffDiff")||"normal";speed.value=localStorage.getItem("ffSpeed")||"180";speedText.textContent=speed.value;sceneSel.value=localStorage.getItem("ffScene")||"auto";
+
+function speedNow(){return difficulty.value==="custom"?+speed.value:speeds[difficulty.value]}
+function save(){localStorage.setItem("ffBest",best);localStorage.setItem("ffDiff",difficulty.value);localStorage.setItem("ffSpeed",speed.value);localStorage.setItem("ffScene",sceneSel.value)}
+function sfx(n){if(muted)return;let a=audio[n-1];if(!a)return;a.currentTime=0;a.play().catch(()=>{})}
+
+function reset(){
+ bird={x:112,y:H*.46,vy:0,angle:0,bank:0};
+ pipes=[];score=0;spawn=.8;world=0;scoreEl.textContent="0";
+ sceneIndex=sceneSel.value==="auto"?Math.floor(Math.random()*4):["day","sunset","night","storm"].indexOf(sceneSel.value);
+ if(sceneIndex<0)sceneIndex=0;
+}
+function start(){
+ reset();state="playing";menu.classList.add("hidden");last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);jump()
+}
+function jump(){
+ if(state==="menu"||state==="gameover"){start();return}
+ if(state!=="playing")return;
+ bird.vy=G.jump;bird.bank=-.12;sfx(1)
+}
+function addPipe(){
+ const playable=H-G.ground,margin=110;
+ const min=margin,max=Math.max(min,playable-margin-G.gap);
+ pipes.push({x:W+35,top:min+Math.random()*(max-min),passed:false,seed:Math.random()})
+}
+function hit(cx,cy,r,x,y,w,h){let qx=Math.max(x,Math.min(cx,x+w)),qy=Math.max(y,Math.min(cy,y+h)),dx=cx-qx,dy=cy-qy;return dx*dx+dy*dy<r*r}
+function die(){
+ if(state!=="playing")return;state="gameover";sfx(3);setTimeout(()=>sfx(4),100);
+ if(score>best){best=score;save()}
+ title.textContent="FLIGHT ENDED";message.textContent="Score "+score+" • Best "+best;
+ stats.innerHTML=score===best&&score>0?"🏆 NEW HIGH SCORE!":"";
+ play.textContent="FLY AGAIN";bestEl.textContent=best;menu.classList.remove("hidden")
+}
+function update(dt){
+ const v=speedNow();world+=v*dt;
+ bird.vy+=G.gravity*dt;bird.y+=bird.vy*dt;bird.angle=Math.max(-.35,Math.min(.85,bird.vy/560));
+ bird.bank+=(Math.max(-.15,Math.min(.12,-bird.vy/300))-bird.bank)*Math.min(1,dt*5);
+ spawn-=dt;if(spawn<=0){addPipe();spawn=G.spacing/v}
+ for(const p of pipes){p.x-=v*dt;if(!p.passed&&p.x+G.pipeW<bird.x){p.passed=true;score++;scoreEl.textContent=score;sfx(2)}}
+ pipes=pipes.filter(p=>p.x>-120);
+ // Smaller gameplay hit radius keeps the face visually large without making collision unfair.
+ const r=21;
+ if(bird.y-r<0||bird.y+r>H-G.ground){die();return}
+ for(const p of pipes)if(hit(bird.x,bird.y,r,p.x,0,G.pipeW,p.top)||hit(bird.x,bird.y,r,p.x,p.top+G.gap,G.pipeW,H-G.ground-p.top-G.gap)){die();return}
+}
+function sky(){
+ let mode=sceneIndex;
+ if(sceneSel.value==="auto")mode=Math.floor((score/8)%4);
+ if(mode===0){let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#4bb8ee");g.addColorStop(.7,"#bceeff");g.addColorStop(1,"#f3fbff");ctx.fillStyle=g;ctx.fillRect(0,0,W,H-G.ground);ctx.fillStyle="#fff9";for(let i=0;i<5;i++){let x=((i*140-world*.15)%600+600)%600-50;let y=85+(i%3)*65;ctx.beginPath();ctx.ellipse(x,y,48,14,0,0,7);ctx.fill()}}
+ else if(mode===1){let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#6b55b8");g.addColorStop(.55,"#ee8667");g.addColorStop(1,"#ffd07a");ctx.fillStyle=g;ctx.fillRect(0,0,W,H-G.ground);ctx.fillStyle="#4b426d";for(let i=0;i<8;i++){let x=i*85-(world*.08%85);ctx.beginPath();ctx.moveTo(x,H-G.ground);ctx.lineTo(x+55,300+(i%3)*35);ctx.lineTo(x+115,H-G.ground);ctx.fill()}}
+ else if(mode===2){let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#07132e");g.addColorStop(1,"#234d78");ctx.fillStyle=g;ctx.fillRect(0,0,W,H-G.ground);ctx.fillStyle="#e9f6ff";for(let i=0;i<35;i++){let x=(i*83)%W,y=(i*47)%430+40;ctx.fillRect(x,y,2,2)}ctx.fillStyle="#183e58";for(let i=0;i<8;i++){let x=i*75-(world*.1%75);ctx.beginPath();ctx.moveTo(x,H-G.ground);ctx.lineTo(x+35,390+(i%2)*50);ctx.lineTo(x+80,H-G.ground);ctx.fill()}}
+ else {let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#344b62");g.addColorStop(1,"#9db0bd");ctx.fillStyle=g;ctx.fillRect(0,0,W,H-G.ground);ctx.strokeStyle="#dff7ff55";ctx.lineWidth=2;for(let i=0;i<45;i++){let x=(i*43+world*.8)%W,y=(i*67)%520;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-14,y+35);ctx.stroke()}}
+}
+function pipe(p){
+ const x=p.x,w=G.pipeW;
+ let grad=ctx.createLinearGradient(x,0,x+w,0);grad.addColorStop(0,"#236d35");grad.addColorStop(.16,"#72d95e");grad.addColorStop(.55,"#4bb448");grad.addColorStop(1,"#1e7131");
+ ctx.fillStyle=grad;ctx.fillRect(x,0,w,p.top);ctx.fillRect(x,p.top+G.gap,w,H-G.ground-p.top-G.gap);
+ ctx.fillStyle="#58c452";ctx.fillRect(x-8,p.top-25,w+16,25);ctx.fillRect(x-8,p.top+G.gap,w+16,25);
+ ctx.fillStyle="#a0e87e";ctx.fillRect(x+9,0,10,Math.max(0,p.top-25));ctx.fillRect(x+9,p.top+G.gap+25,10,Math.max(0,H-G.ground-p.top-G.gap-25));
+}
+function ground(){
+ ctx.fillStyle="#7cc34a";ctx.fillRect(0,H-G.ground,W,G.ground);
+ ctx.fillStyle="#4b9f3c";ctx.fillRect(0,H-G.ground,W,9);
+ ctx.fillStyle="#d6ad55";ctx.fillRect(0,H-G.ground+9,W,G.ground-9);
+ ctx.fillStyle="#ebcc78";for(let x=-(world%34);x<W;x+=34)ctx.fillRect(x,H-G.ground+32,20,7);
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);sky();
+ for(const p of pipes)pipe(p);ground();
+ if(face.complete&&face.naturalWidth){
+   ctx.save();ctx.translate(bird.x,bird.y);ctx.rotate(bird.angle+bird.bank);
+   // Draw at natural aspect ratio into a high-resolution canvas. No velocity-based scaling.
+   const max=68,ratio=face.naturalWidth/face.naturalHeight;
+   let w=max,h=max;if(ratio>1)h=max/ratio;else w=max*ratio;
+   ctx.imageSmoothingEnabled=true;ctx.drawImage(face,-w/2,-h/2,w,h);ctx.restore();
+ } else {ctx.fillStyle="#f3bd43";ctx.beginPath();ctx.arc(bird.x,bird.y,28,0,7);ctx.fill()}
+}
+function loop(t){
+ if(state!=="playing")return;let dt=Math.min(.02,(t-last)/1000);last=t;update(dt);draw();if(state==="playing")raf=requestAnimationFrame(loop)
+}
+function pauseGame(){
+ if(state==="playing"){state="paused";pause.textContent="RESUME";cancelAnimationFrame(raf)}
+ else if(state==="paused"){state="playing";pause.textContent="PAUSE";last=performance.now();raf=requestAnimationFrame(loop)}
+}
+cv.addEventListener("pointerdown",e=>{e.preventDefault();jump()},{passive:false});
+root.addEventListener("keydown",e=>{if(e.code==="Space"||e.code==="ArrowUp"){e.preventDefault();jump()}if(e.code==="KeyP")pauseGame()});
+play.onclick=start;restart.onclick=start;pause.onclick=pauseGame;
+sound.onclick=()=>{muted=!muted;sound.textContent=muted?"🔇 SOUND":"🔊 SOUND"};
+settingsBtn.onclick=()=>{settings.classList.toggle("hidden");custom.classList.toggle("hidden",difficulty.value!=="custom")};
+difficulty.onchange=()=>{custom.classList.toggle("hidden",difficulty.value!=="custom");save()};
+speed.oninput=()=>{speedText.textContent=speed.value;save()};
+sceneSel.onchange=save;
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&state==="playing")pauseGame()});
+
+face.onload=()=>loading.classList.add("hidden");
+face.onerror=()=>{loading.textContent="face.png not found — put your background-removed image beside index.html";loading.style.background="#401010"};
+reset();draw();
+})();
+</script>
+</div>
+</body>
+</html>
